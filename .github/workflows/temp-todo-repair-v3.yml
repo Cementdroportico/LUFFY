@@ -1,0 +1,74 @@
+name: Temp TODO Repair v3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/temp-todo-repair-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 1
+
+      - name: Apply exact author tags
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          s = p.read_bytes().decode('utf-8')
+          pairs = [
+              (
+                  '**luffy/verl/verl/protocol.py:169** - add consistency check',
+                  '**luffy/verl/verl/protocol.py:169** - (zhangchi.usc1992) add consistency check',
+              ),
+              (
+                  '**luffy/verl/verl/protocol.py:351** - whether to copy',
+                  '**luffy/verl/verl/protocol.py:351** - (zhangchi.usc1992) whether to copy',
+              ),
+          ]
+          changed = False
+          for old, new in pairs:
+              if new in s and old not in s:
+                  print('Already applied:', new)
+                  continue
+              assert s.count(old) == 1, (old, s.count(old))
+              assert new not in s
+              s = s.replace(old, new)
+              changed = True
+          if changed:
+              p.write_bytes(s.encode('utf-8'))
+          PY
+
+      - name: Verify diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git --no-pager diff -- README.md
+          n=$(git diff --numstat -- README.md | awk '{a+=$1; d+=$2} END {print a+d+0}')
+          echo "changed_lines=$n"
+          test "$n" -eq 4
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- README.md; then
+            echo 'No README changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'docs: preserve TODO authors in README [skip ci]'
+          git push origin HEAD:dev
